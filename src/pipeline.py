@@ -20,29 +20,28 @@ class PipelineState(TypedDict):
     code: str
     lint_passed: bool
     lint_feedback: str
+    lint_retry_count: int   # Linter → Developer 재시도 카운터
     qa_passed: bool
     qa_feedback: str
-    retry_count: int
+    qa_retry_count: int     # QA → Developer 재시도 카운터
     retrospection: str
     output_path: str
 
 
 def _route_after_linter(state: PipelineState) -> str:
-    """Lint 실패 시 Developer로 재전송, 통과 시 QA로 진행."""
     max_retry = int(os.getenv("MAX_RETRY", "2"))
     if state.get("lint_passed"):
         return "qa"
-    if state.get("retry_count", 0) < max_retry:
+    if state.get("lint_retry_count", 0) < max_retry:
         return "developer"
     return "qa"
 
 
 def _route_after_qa(state: PipelineState) -> str:
-    """QA 실패 시 Developer로 재전송(재시도 한도 내), 통과 또는 소진 시 Retrospector로."""
     max_retry = int(os.getenv("MAX_RETRY", "2"))
     if state.get("qa_passed"):
         return "retrospector"
-    if state.get("retry_count", 0) < max_retry:
+    if state.get("qa_retry_count", 0) < max_retry:
         return "developer"
     return "retrospector"
 
@@ -64,18 +63,12 @@ def build_pipeline() -> StateGraph:
     graph.add_conditional_edges(
         "linter",
         _route_after_linter,
-        {
-            "developer": "developer",
-            "qa": "qa",
-        },
+        {"developer": "developer", "qa": "qa"},
     )
     graph.add_conditional_edges(
         "qa",
         _route_after_qa,
-        {
-            "developer": "developer",
-            "retrospector": "retrospector",
-        },
+        {"developer": "developer", "retrospector": "retrospector"},
     )
     graph.add_edge("retrospector", END)
 

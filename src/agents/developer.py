@@ -7,10 +7,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 
 def run_developer(state: dict) -> dict:
-    retry = state.get("retry_count", 0)
-    label = f"[3/6] DEVELOPER — Generating code (attempt {retry + 1})"
+    lint_retry = state.get("lint_retry_count", 0)
+    qa_retry = state.get("qa_retry_count", 0)
+    attempt = lint_retry + qa_retry + 1
     print("\n" + "=" * 60)
-    print(label)
+    print(f"[3/6] DEVELOPER — Generating code (attempt {attempt})")
     print("=" * 60)
 
     llm = ChatAnthropic(
@@ -20,14 +21,14 @@ def run_developer(state: dict) -> dict:
     )
 
     feedback_section = ""
-    if retry > 0 and state.get("qa_feedback"):
+    feedback = state.get("lint_feedback") or state.get("qa_feedback") or ""
+    source = "Linter" if state.get("lint_feedback") else "QA" if state.get("qa_feedback") else ""
+    if feedback:
         feedback_section = f"""
-Previous attempt failed QA. Feedback to address:
-{state['qa_feedback']}
-
-Fix the issues above before generating code.
+Previous attempt failed {source} checks. Issues to fix:
+{feedback}
 """
-        print(f"QA feedback to address:\n{state['qa_feedback']}")
+        print(f"{source} feedback to address:\n{feedback}")
 
     messages = [
         SystemMessage(
@@ -56,7 +57,6 @@ Requirements:
     response = llm.invoke(messages)
     code = response.content.strip()
 
-    # Strip markdown code fences if the model included them
     if code.startswith("```"):
         lines = code.splitlines()
         code = "\n".join(
@@ -66,4 +66,10 @@ Requirements:
 
     print(f"\nOutput — {len(code.splitlines())} lines of code generated")
 
-    return {"code": code, "retry_count": retry + 1}
+    # 어느 쪽에서 재시도됐는지에 따라 해당 카운터만 증가
+    updates: dict = {"code": code, "lint_feedback": "", "qa_feedback": ""}
+    if state.get("lint_feedback"):
+        updates["lint_retry_count"] = lint_retry + 1
+    else:
+        updates["qa_retry_count"] = qa_retry + 1
+    return updates

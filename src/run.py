@@ -51,9 +51,12 @@ def main() -> None:
         "tasks": [],
         "design": "",
         "code": "",
+        "lint_passed": False,
+        "lint_feedback": "",
+        "lint_retry_count": 0,
         "qa_passed": False,
         "qa_feedback": "",
-        "retry_count": 0,
+        "qa_retry_count": 0,
         "retrospection": "",
         "output_path": "",
     }
