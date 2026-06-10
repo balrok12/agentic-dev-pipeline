@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 def run_retrospector(state: dict) -> dict:
     print("\n" + "=" * 60)
-    print("[5/5] RETROSPECTOR — Summarising cycle")
+    print("[6/6] RETROSPECTOR — Summarising cycle")
     print("=" * 60)
 
     llm = ChatAnthropic(

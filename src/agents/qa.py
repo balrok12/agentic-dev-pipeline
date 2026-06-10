@@ -16,7 +16,7 @@ _REQUIRED_PATTERNS = [
 
 def run_qa(state: dict) -> dict:
     print("\n" + "=" * 60)
-    print("[4/5] QA — Validating generated code")
+    print("[5/6] QA — Validating generated code")
     print("=" * 60)
 
     code = state.get("code", "")

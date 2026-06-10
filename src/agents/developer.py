@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 def run_developer(state: dict) -> dict:
     retry = state.get("retry_count", 0)
-    label = f"[3/5] DEVELOPER — Generating code (attempt {retry + 1})"
+    label = f"[3/6] DEVELOPER — Generating code (attempt {retry + 1})"
     print("\n" + "=" * 60)
     print(label)
     print("=" * 60)
