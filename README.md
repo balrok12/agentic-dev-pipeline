@@ -9,58 +9,104 @@
 ## 파이프라인 구조
 
 ```
-   requirement
-       │
-  ┌────▼──────┐
-  │  Analyst  │  요구사항을 태스크로 분해
-  └────┬──────┘
-       │ tasks[]
-  ┌────▼──────┐
-  │ Architect │  데이터 모델 및 API 엔드포인트 설계
-  └────┬──────┘
-       │ design doc
-  ┌────▼──────┐◄─── lint 실패 시 재시도 (최대 2회)
-  │ Developer │◄─── QA 실패 시 재시도 (최대 2회)
-  └────┬──────┘
-       │ code
-  ┌────▼──────┐
-  │  Linter   │  ruff 자동 수정 + 잔여 이슈 검출
-  └────┬──────┘
-       │ 통과
-  ┌────▼──────┐
-  │    QA     │  구문 및 구조 검증
-  └────┬──────┘
-       │ 통과 (또는 재시도 소진)
-  ┌────▼────────┐
-  │ Retrospector│  사이클 요약 및 개선점 도출
-  └─────────────┘
+               requirement
+                    │
+              ┌─────▼──────┐
+              │   Router   │  레인 분류: feature · bug · legacy · research · audit
+              └─────┬──────┘
+                    │
+              ┌─────▼──────┐
+              │  Analyst   │  태스크 분해 + 복잡도 평가 (LOW / MEDIUM / HIGH)
+              └──┬──────┬──┘
+             LOW/MED   HIGH
+                 │    ┌──▼──────┐
+                 │    │ Critic  │  적대적 설계 검토 (HIGH 전용)
+                 │    └──┬──────┘
+                 └───────┤
+                         │
+              ┌──────────▼────────┐
+              │     Architect     │  데이터 모델 & API 설계
+              └──────────┬────────┘
+                         │
+   ┌─────────────────────▼──────────────────────┐
+   │               Developer                    │◄── lint / QA 실패 재작업
+   └─────────────────────┬──────────────────────┘
+                         │
+   ┌─────────────────────▼──────────────────────┐
+   │           Linter (ruff)                    │
+   │  · 코드 생성 직후 자동 수정                │
+   │  · 커밋 시점 lint-staged 재실행 (pre-commit)│
+   └─────────────────────┬──────────────────────┘
+                    통과  │  실패 → Developer 재시도 (≤2회)
+   ┌─────────────────────▼──────────────────────┐
+   │                   QA                       │  구문 & 구조 검증
+   └──────────┬──────────────────────┬──────────┘
+            PASS                  REJECT
+              │                     │
+              │             ┌───────▼──────────┐
+              │             │    Archivist     │  anti_patterns KB 저장
+              │             └──┬───────────┬───┘
+              │          재작업│      >2회  │ ESCALATE
+              │           Developer         │
+              │                             ▼
+   ┌──────────▼──────────┐           Reflector
+   │     Commit Gate     │  LATEST_PASS 검증 후 커밋 허용
+   └──────────┬──────────┘
+              │
+   ┌──────────▼──────────┐
+   │      Archivist      │  best_practices KB 저장
+   └──────────┬──────────┘
+              │
+   ┌──────────▼──────────┐
+   │      Reflector      │  RSI 회고 + 개선 신호 생성
+   └──────────┬──────────┘
+              │
+             END
 ```
 
 ```mermaid
-graph LR
-    A[Analyst] --> B[Architect]
-    B --> C[Developer]
-    C --> D[Linter]
-    D -- 통과 --> E[QA]
-    D -- "실패 (≤2회 재시도)" --> C
-    E -- 통과 --> F[Retrospector]
-    E -- "실패 (≤2회 재시도)" --> C
-    E -- "실패 (재시도 소진)" --> F
-    F --> END([End])
+graph TD
+    IN([requirement]) --> Router
+    Router -->|"feature / bug / legacy / research"| Analyst
+    Router -->|audit| AuditLane["Audit Lane (별도)"]
+
+    Analyst -->|"복잡도 HIGH"| Critic["Critic\n적대적 설계 검토"]
+    Analyst -->|"LOW / MEDIUM"| Architect
+    Critic --> Architect
+
+    Architect --> Developer
+    Developer --> Linter["Linter · ruff\n① 생성 직후 자동수정\n② 커밋 게이트 재실행"]
+
+    Linter -->|통과| QA
+    Linter -->|"실패 ≤2회"| Developer
+
+    QA -->|PASS| CommitGate["Commit Gate\nLATEST_PASS 검증"]
+    QA -->|REJECT| ArchivistR["Archivist\nanti_patterns KB 저장"]
+
+    ArchivistR -->|재작업 가능| Developer
+    ArchivistR -->|"ESCALATE  >2회"| Reflector
+
+    CommitGate --> ArchivistP["Archivist\nbest_practices KB 저장"]
+    ArchivistP --> Reflector["Reflector\nRSI 회고 + 개선 신호"]
+    Reflector --> END([End])
 ```
 
 ---
 
 ## 에이전트 역할
 
-| 에이전트 | 역할 | 입력 | 출력 |
-|---|---|---|---|
-| **Analyst** | 요구사항 분해 | 자연어 요구사항 | 태스크 목록 |
-| **Architect** | 시스템 설계 | 태스크 목록 | 데이터 모델 + API 명세 |
-| **Developer** | 코드 생성 | 설계 문서 (재시도 시 피드백 포함) | FastAPI Python 소스 |
-| **Linter** | 정적 분석 | 생성된 코드 | ruff 자동 수정 코드 + 잔여 이슈 |
-| **QA** | 코드 검증 | lint 완료 코드 | 통과/실패 + 피드백 |
-| **Retrospector** | 사이클 회고 | 전체 파이프라인 상태 | 한 줄 개선점 |
+| 에이전트 | 역할 | 비고 |
+|---|---|---|
+| **Router** | 입력 레인 분류 (feature/bug/legacy/research/audit) | |
+| **Analyst** | 태스크 분해 + 복잡도 평가 (LOW/MEDIUM/HIGH) | ✓ 데모 구현 |
+| **Critic** | 적대적 설계 검토 — 복잡도 HIGH 시에만 개입 | |
+| **Architect** | 데이터 모델 & API 엔드포인트 설계 | ✓ 데모 구현 |
+| **Developer** | FastAPI 코드 생성 (lint·QA 피드백 반영 재시도) | ✓ 데모 구현 |
+| **Linter** | ruff 자동수정 (생성 직후) + 커밋 게이트 재실행 | ✓ 데모 구현 |
+| **QA** | 구문 & 구조 검증, PASS/REJECT 판정 | ✓ 데모 구현 |
+| **Commit Gate** | LATEST_PASS 파일 검증 후 커밋 허용 | |
+| **Archivist** | PASS → best_practices / REJECT → anti_patterns KB 저장 | |
+| **Reflector** | RSI 회고 신호 생성, ESCALATE 시 사용자 보고 | |
 
 ---
 
@@ -110,19 +156,6 @@ python src/run.py --requirement "Create a REST API for todo management with full
 uvicorn output.todo_api_<timestamp>:app --reload
 # http://localhost:8000/docs 에서 Swagger UI 확인
 ```
-
----
-
-## 개발 환경 설정 (pre-commit)
-
-커밋 전 자동 린팅을 활성화하려면:
-
-```bash
-pip install -r requirements-dev.txt
-pre-commit install
-```
-
-이후 `git commit` 시 ruff가 자동으로 실행됩니다.
 
 ---
 
