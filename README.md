@@ -1,88 +1,129 @@
-# Agentic Dev Pipeline
+# Agentic Development Pipeline
 
-자연어로 작성된 요구사항을 입력받아 **설계 → 분담 개발 → 자동 검증 → 회고 → 개선**까지 스스로 수행하는 멀티에이전트 개발 자동화 파이프라인입니다.
+A multi-agent development automation pipeline demo built with **LangGraph** and **Anthropic Claude**.  
+Given a natural-language requirement, the pipeline autonomously analyses, designs, generates, validates, and retrospects — producing a runnable FastAPI application.
 
-정규 개발 인력 없이, 여러 AI 에이전트를 역할별로 나눠 하나의 개발팀처럼 운영하는 구조를 직접 설계하고 구현했습니다. 이 저장소는 그 방법론을 회사·도메인과 무관한 중립 예제(작업 관리 API)로 재구현한 데모입니다.
-
-> 실제 운영 중인 엔터프라이즈 통합 포털에 동일한 구조를 적용해 1인 3개월 만에 10개 업무 도메인 / 565개 REST API 규모를 구현했습니다. 해당 코드는 회사 자산이라 공개할 수 없어, 구조와 방법론을 동일하게 옮긴 데모로 대체합니다.
-
----
-
-## 왜 만들었나
-
-혼자 대규모 시스템을 만들어야 하는 상황에서, "AI에게 코드를 시키는 것"과 "AI 팀을 운영하는 것"은 전혀 다른 문제라는 걸 알게 됐습니다. 단발성 코드 생성은 금방 한계에 부딪힙니다. 일관된 아키텍처를 유지하고, 품질을 검증하고, 실수를 다음 작업에 반영하려면 **개발 프로세스 자체를 자동화**해야 했습니다.
-
-그래서 사람 개발팀이 일하는 방식 — 요구사항을 분석하고, 아키텍트가 설계하고, 개발자들이 나눠 만들고, QA가 검증하고, 회고로 개선하는 흐름 — 을 에이전트 역할로 옮겼습니다.
+> **Note:** This demo illustrates the pipeline structure as a minimal implementation. Detailed design decisions and production tuning are not included.
 
 ---
 
-## 파이프라인 구조
+## Pipeline Structure
 
 ```
-[1] 요구사항 분석     자연어 요구사항을 파싱해 작업 단위로 분해
-        ↓
-[2] 마스터 아키텍처   전체 설계·인터페이스·데이터 모델 정의 (일관성의 기준점)
-        ↓
-[3] 스쿼드 개발       역할별 에이전트가 작업을 분담해 병렬 구현
-        ↓
-[4] 자동 검증         코드 리뷰·테스트로 산출물 품질 검사, 실패 시 [3]으로 반려
-        ↓
-[5] 회고             완료 사이클을 분석해 개선점 도출
-        ↓
-[6] 자기개선·감사     회고 결과를 다음 사이클 규칙으로 반영 + 전수 보안·품질 감사
+                      ┌──────────┐
+   requirement ──────►│ Analyst  │  Breaks requirement into tasks
+                      └────┬─────┘
+                           │ tasks[]
+                      ┌────▼─────┐
+                      │Architect │  Designs data model & API endpoints
+                      └────┬─────┘
+                           │ design doc
+                      ┌────▼─────┐
+              ┌───────│Developer │  Generates FastAPI source code
+              │       └────┬─────┘
+              │            │ code
+         retry│       ┌────▼─────┐
+         (≤2x)└───────│    QA    │  Validates syntax & structure
+                      └────┬─────┘
+                    pass   │   fail (retry exhausted)
+                      ┌────▼──────┐
+                      │Retrospector│ Summarises cycle, extracts improvement
+                      └───────────┘
 ```
 
-핵심은 [4]→[3] 반려 루프와 [5]→[6] 개선 루프입니다. 검증을 통과하지 못한 작업은 자동으로 다시 개발 단계로 돌아가고, 매 사이클의 회고가 다음 사이클의 규칙으로 쌓입니다. 같은 실수를 반복하지 않게 만드는 구조입니다.
+```mermaid
+graph LR
+    A[Analyst] --> B[Architect]
+    B --> C[Developer]
+    C --> D[QA]
+    D -- pass --> E[Retrospector]
+    D -- fail & retries left --> C
+    D -- fail & retries exhausted --> E
+    E --> END([End])
+```
 
 ---
 
-## 에이전트 역할
+## Agent Roles
 
-| 역할 | 담당 |
-|------|------|
-| Analyst | 자연어 요구사항 분석, 작업 분해 |
-| Architect | 전체 설계, 인터페이스·데이터 모델 정의 |
-| Squad (개발) | 역할별 분담 구현 |
-| QA | 자동 코드 리뷰, 테스트 검증 |
-| Retrospector | 사이클 회고, 개선점 도출 |
-| Auditor | 전수 보안·품질 감사 |
-
----
-
-## 기술 스택
-
-- **오케스트레이션**: LangGraph (상태 기반 에이전트 그래프, 검증 실패 시 조건부 반려)
-- **백엔드**: Python / FastAPI
-- **도구 연동**: MCP 서버 기반 런북·도구 노출
-- **데모 대상**: 작업 관리 API (CRUD + 검색)
+| Agent | Role | Input | Output |
+|---|---|---|---|
+| **Analyst** | Requirement decomposition | Natural-language requirement | Task list |
+| **Architect** | System design | Task list | Data model + API spec |
+| **Developer** | Code generation | Design doc (+ QA feedback on retry) | FastAPI Python source |
+| **QA** | Code validation | Generated code | Pass/fail + feedback |
+| **Retrospector** | Cycle summary | Full pipeline state | One-line improvement |
 
 ---
 
-## 데모 실행
+## Tech Stack
+
+| Component | Library |
+|---|---|
+| Agent orchestration | [LangGraph](https://github.com/langchain-ai/langgraph) |
+| LLM | [Anthropic Claude](https://www.anthropic.com) via `langchain-anthropic` |
+| Generated app target | [FastAPI](https://fastapi.tiangolo.com) |
+| Environment | Python 3.11+ |
+
+---
+
+## Quick Start
+
+### 1. Clone & install
 
 ```bash
-# 의존성 설치
+git clone https://github.com/balrok12/agentic-dev-pipeline.git
+cd agentic-dev-pipeline
+python -m venv .venv
+# Windows:  .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-
-# 환경변수 설정 (.env.example 참고)
-cp .env.example .env
-
-# 파이프라인 실행
-python run_pipeline.py --requirement "사용자가 할 일을 등록/수정/완료할 수 있는 API"
 ```
 
-실행하면 요구사항 분석부터 코드 생성·검증·회고까지의 로그가 단계별로 출력되고, `output/` 디렉터리에 생성된 코드가 쌓입니다.
+### 2. Set up environment
+
+```bash
+cp .env.example .env
+# Edit .env and add your ANTHROPIC_API_KEY
+```
+
+### 3. Run the pipeline
+
+```bash
+python src/run.py --requirement "Create a REST API for todo management with full CRUD operations."
+```
+
+The generated FastAPI app is saved to `output/todo_api_<timestamp>.py`.
+
+### 4. Run the generated app (optional)
+
+```bash
+uvicorn output.todo_api_<timestamp>:app --reload
+# Open http://localhost:8000/docs
+```
 
 ---
 
-## 설계하며 배운 것
+## Output
 
-- **일관성은 사람이 아니라 구조가 지킨다.** 마스터 아키텍처를 단일 기준점으로 두지 않으면, 에이전트마다 다른 스타일로 코드를 쏟아내 금방 무너집니다.
-- **검증 루프가 없으면 양만 늘고 품질은 떨어진다.** 자동 반려 구조가 있어야 "많이 만든다"가 "제대로 만든다"가 됩니다.
-- **회고를 규칙으로 누적하는 게 핵심이다.** 한 번 발견한 실수를 다음 사이클 규칙으로 박아두면, 같은 문제가 다시 안 생깁니다.
+Each run produces:
+
+- Console output showing each agent's step-by-step progress
+- A runnable FastAPI Python file in `output/`
+
+See [examples/sample_run_log.md](examples/sample_run_log.md) for a full example run log.
 
 ---
 
-## 한 줄 요약
+## Configuration
 
-코드를 짜는 사람이 아니라, **코드를 짜는 AI 팀을 설계하고 운영하는 사람**의 작업물입니다.
+| Variable | Default | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | *(required)* | Your Anthropic API key |
+| `MODEL_NAME` | `claude-3-5-haiku-20241022` | Claude model to use |
+| `MAX_RETRY` | `2` | Max QA→Developer retries |
+
+---
+
+> This demo is a minimal implementation to illustrate pipeline structure.  
+> Detailed design and production-level tuning are not included.
