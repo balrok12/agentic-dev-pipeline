@@ -1,78 +1,78 @@
-# Architecture Notes
+# 아키텍처 노트
 
-## Why a pipeline instead of a single code-generation call?
+## 단일 코드 생성 호출 대신 파이프라인이 필요한 이유
 
-A single LLM call can generate code from a requirement — but it treats the entire problem as one black box.  
-As tasks grow in complexity, this approach breaks down in predictable ways:
+LLM 한 번의 호출로도 요구사항으로부터 코드를 생성할 수 있습니다. 하지만 그 방식은 문제 전체를 하나의 블랙박스로 취급합니다.  
+작업의 복잡도가 높아질수록 이 접근법은 예측 가능한 방식으로 무너집니다.
 
-- The model has no opportunity to clarify ambiguities before writing code.
-- There is no structural validation step; errors are discovered only at runtime.
-- There is no mechanism to learn from failures within a run.
+- 코드를 작성하기 전에 모호한 부분을 명확히 할 기회가 없습니다.
+- 구조적인 검증 단계가 없어, 오류는 런타임이 되어서야 발견됩니다.
+- 실행 중 실패로부터 배우는 메커니즘이 존재하지 않습니다.
 
-A pipeline decomposes the problem into distinct stages, each with a clear responsibility and output contract.  
-Each stage can be evaluated, replaced, or scaled independently.
-
----
-
-## Pipeline stages and their rationale
-
-### Analyst
-Separating requirement analysis from code generation forces the system to make the implicit explicit.  
-Ambiguities in the original requirement surface as gaps in the task list, where they are cheapest to fix.
-
-### Architect
-A design step produces a shared contract (data model, endpoint signatures) that the downstream code generator must honour.  
-This prevents the common failure mode where generated code invents its own schema and is inconsistent with what was asked for.
-
-### Developer
-Code generation is the only truly generative stage. By the time it runs, it has a precise spec rather than a vague intent.  
-On retry, it also receives concrete QA feedback, narrowing the search space.
-
-### QA with conditional retry
-Automated validation closes the loop within a single run.  
-The conditional edge (QA → Developer on failure) is the key structural feature:  
-it makes the pipeline self-correcting up to a configurable retry limit, without human intervention.
-
-### Retrospector
-A retrospection step produces a structured artefact (one improvement point per cycle) that could be accumulated across runs.  
-Over many cycles, this is the foundation for automated prompt or process improvement — without it, failures are silent.
+파이프라인은 문제를 명확한 책임과 출력 계약을 가진 독립적인 단계들로 분해합니다.  
+각 단계는 독립적으로 평가하고, 교체하고, 확장할 수 있습니다.
 
 ---
 
-## Scaling considerations
+## 파이프라인 단계별 설계 의도
 
-As this architecture is extended beyond a demo, several challenges emerge:
+### Analyst (분석)
+요구사항 분석을 코드 생성과 분리함으로써, 시스템이 암묵적인 것을 명시적으로 드러내도록 강제합니다.  
+원래 요구사항의 모호한 부분은 태스크 목록의 빈틈으로 나타나며, 이 시점에서 수정하는 비용이 가장 저렴합니다.
 
-**Agent proliferation and consistency**  
-With more agents (security review, documentation, test generation), keeping prompt behaviour consistent across agents becomes non-trivial.  
-A shared agent contract (input/output schema, tone, failure modes) is necessary before adding agents beyond a handful.
+### Architect (설계)
+설계 단계는 후속 코드 생성기가 반드시 따라야 할 공유 계약(데이터 모델, 엔드포인트 명세)을 만들어냅니다.  
+생성된 코드가 자체적인 스키마를 임의로 만들어 요구사항과 일치하지 않게 되는 흔한 실패를 방지합니다.
 
-**Validation cost vs. coverage**  
-Static syntax and keyword checks are cheap but shallow.  
-Deeper validation (type checking, test execution, integration smoke tests) increases quality signal at the cost of latency and infrastructure.  
-The right balance depends on the risk profile of what is being generated.
+### Developer (개발)
+코드 생성은 유일하게 창조적인 단계입니다. 이 단계가 실행될 때쯤에는 막연한 의도가 아닌 정밀한 명세가 주어집니다.  
+재시도 시에는 QA의 구체적인 피드백도 함께 전달되어 탐색 범위를 좁힙니다.
 
-**Retrospection accumulation**  
-A single retrospection summary is useful for visibility.  
-Making it actionable at scale requires a structured store of past cycles, a retrieval mechanism, and a way to surface relevant past failures when similar requirements recur.
+### QA (조건부 재시도 포함)
+자동화된 검증이 단일 실행 안에서 루프를 닫습니다.  
+조건부 엣지(QA → 실패 시 Developer)는 핵심 구조적 특징입니다.  
+사람의 개입 없이, 설정된 재시도 한도 내에서 파이프라인이 스스로 교정하도록 만듭니다.
 
-**State and observability**  
-LangGraph's explicit state makes it straightforward to log, replay, or diff any run.  
-In production, emitting structured events at each node transition is the minimum needed for meaningful debugging and cost tracking.
-
-**Prompt governance**  
-As the number of agents and requirements grow, prompt drift becomes a risk — agents that worked well for one domain may degrade on another.  
-Versioning prompts alongside code, and evaluating them against a held-out requirement set, is the direction for maintaining quality at scale.
+### Retrospector (회고)
+회고 단계는 실행마다 누적 가능한 구조화된 산출물(사이클당 개선점 한 항목)을 만들어냅니다.  
+여러 사이클에 걸쳐 이것이 쌓이면, 자동화된 프롬프트 또는 프로세스 개선의 기반이 됩니다. 이 단계가 없으면 실패는 조용히 묻힙니다.
 
 ---
 
-## What this demo does not show
+## 확장 시 고려사항
 
-This demo intentionally omits:
+이 아키텍처를 데모 수준 너머로 확장할 때 몇 가지 과제가 생깁니다.
 
-- Production-grade validation (type checking, test generation, security scanning)
-- Multi-squad coordination (multiple developer agents working in parallel)
-- Persistent memory across runs
-- Deployment or CI/CD integration
+**에이전트 증가와 일관성 유지**  
+에이전트가 늘어날수록(보안 검토, 문서화, 테스트 생성 등) 에이전트 간 프롬프트 동작을 일관되게 유지하는 것이 비자명해집니다.  
+에이전트를 몇 개 이상 추가하기 전에, 공유 에이전트 계약(입출력 스키마, 어조, 실패 모드)이 필요합니다.
 
-These are extensions of the same architecture, not replacements for it.
+**검증 비용 vs. 커버리지**  
+정적 구문 검사와 키워드 확인은 비용이 낮지만 깊이가 얕습니다.  
+더 깊은 검증(타입 체크, 테스트 실행, 통합 스모크 테스트)은 품질 신호를 높이지만 레이턴시와 인프라 비용을 수반합니다.  
+적절한 균형은 생성하는 결과물의 리스크 프로파일에 따라 달라집니다.
+
+**회고의 누적**  
+단일 회고 요약은 가시성 확보에 유용합니다.  
+이를 규모에서 실행 가능하게 만들려면, 과거 사이클의 구조화된 저장소와 검색 메커니즘, 유사한 요구사항이 재등장할 때 관련 과거 실패를 끌어올리는 방법이 필요합니다.
+
+**상태와 관찰 가능성**  
+LangGraph의 명시적 상태는 어떤 실행이든 로깅, 재현, 차이 비교를 용이하게 합니다.  
+프로덕션에서는 각 노드 전환 시 구조화된 이벤트를 발행하는 것이 의미 있는 디버깅과 비용 추적을 위한 최소 요건입니다.
+
+**프롬프트 거버넌스**  
+에이전트와 요구사항의 수가 늘어나면 프롬프트 드리프트가 위험 요소가 됩니다 — 한 도메인에서 잘 작동하던 에이전트가 다른 도메인에서는 성능이 저하될 수 있습니다.  
+프롬프트를 코드와 함께 버전 관리하고, 보류된 요구사항 세트로 평가하는 것이 품질을 규모에서 유지하는 방향입니다.
+
+---
+
+## 이 데모에서 다루지 않는 것
+
+이 데모는 의도적으로 다음을 제외합니다.
+
+- 프로덕션 수준의 검증 (타입 체크, 테스트 생성, 보안 스캔)
+- 멀티 스쿼드 조율 (복수의 개발자 에이전트가 병렬 작업)
+- 실행 간 지속 메모리
+- 배포 또는 CI/CD 통합
+
+이것들은 이 아키텍처의 대체재가 아니라 확장입니다.
